@@ -465,8 +465,15 @@ func (conn *IRODSConnection) sslStartup() error {
 		return xerrors.Errorf("Failed to get TLS config: %w", err)
 	}
 
+	sslConf := &tls.Config{
+		RootCAs:            tlsConfig.RootCAs,
+		ServerName:         conn.account.Host,
+		InsecureSkipVerify: true,
+		CipherSuites:       append(tlsConfig.CipherSuites, tls.TLS_RSA_WITH_AES_256_CBC_SHA),
+	}
+
 	// Create a side connection using the existing socket
-	sslSocket := tls.Client(conn.socket, tlsConfig)
+	sslSocket := tls.Client(conn.socket, sslConf)
 
 	err = sslSocket.Handshake()
 	if err != nil {
