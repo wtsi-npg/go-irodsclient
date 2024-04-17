@@ -178,7 +178,7 @@ func (conn *IRODSConnection) setSocketOpt(socket net.Conn, bufferSize int) {
 		// TCP socket
 
 		// nodelay is default
-		//tcpSocket.SetNoDelay(true)
+		// tcpSocket.SetNoDelay(true)
 
 		tcpSocket.SetKeepAlive(true)
 
@@ -438,6 +438,8 @@ func (conn *IRODSConnection) sslStartup() error {
 		RootCAs:            caCertPool,
 		ServerName:         conn.account.Host,
 		InsecureSkipVerify: true,
+		// Force a cipher suite that is accepted by the target server
+		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_256_CBC_SHA},
 	}
 
 	// Create a side connection using the existing socket
