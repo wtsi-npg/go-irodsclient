@@ -1,6 +1,7 @@
 package util
 
 import (
+	"io"
 	"net"
 
 	"github.com/cyverse/go-irodsclient/irods/common"
@@ -11,9 +12,26 @@ import (
 func ReadBytes(socket net.Conn, buffer []byte, size int) (int, error) {
 	readLen, err := ReadBytesWithTrackerCallBack(socket, buffer, size, nil)
 	if err != nil {
+		if err == io.EOF {
+			return readLen, io.EOF
+		}
+
 		return readLen, xerrors.Errorf("failed to read bytes from socket: %w", err)
 	}
 	return readLen, nil
+}
+
+// WriteBytes writes data to socket
+func WriteBytes(socket net.Conn, buffer []byte, size int) error {
+	err := WriteBytesWithTrackerCallBack(socket, buffer, size, nil)
+	if err != nil {
+		if err == io.EOF {
+			return io.EOF
+		}
+
+		return xerrors.Errorf("failed to write bytes to socket: %w", err)
+	}
+	return nil
 }
 
 // ReadBytesWithTrackerCallBack reads data from socket in a particular size
@@ -24,15 +42,22 @@ func ReadBytesWithTrackerCallBack(socket net.Conn, buffer []byte, size int, call
 
 	for sizeLeft > 0 {
 		sizeRead, err := socket.Read(buffer[actualRead:size])
-		if err != nil {
-			return actualRead, xerrors.Errorf("failed to read from socket: %w", err)
+
+		if sizeRead > 0 {
+			sizeLeft -= sizeRead
+			actualRead += sizeRead
+
+			if callback != nil {
+				callback(int64(actualRead), int64(totalSizeToRead))
+			}
 		}
 
-		sizeLeft -= sizeRead
-		actualRead += sizeRead
+		if err != nil {
+			if err == io.EOF {
+				return actualRead, io.EOF
+			}
 
-		if callback != nil {
-			callback(int64(actualRead), int64(totalSizeToRead))
+			return actualRead, xerrors.Errorf("failed to read from socket: %w", err)
 		}
 	}
 
@@ -43,15 +68,6 @@ func ReadBytesWithTrackerCallBack(socket net.Conn, buffer []byte, size int, call
 	return actualRead, nil
 }
 
-// WriteBytes writes data to socket
-func WriteBytes(socket net.Conn, buffer []byte, size int) error {
-	err := WriteBytesWithTrackerCallBack(socket, buffer, size, nil)
-	if err != nil {
-		return xerrors.Errorf("failed to write bytes to socket: %w", err)
-	}
-	return nil
-}
-
 // WriteBytesWithTrackerCallBack writes data to socket
 func WriteBytesWithTrackerCallBack(socket net.Conn, buffer []byte, size int, callback common.TrackerCallBack) error {
 	totalSizeToSend := size
@@ -60,15 +76,22 @@ func WriteBytesWithTrackerCallBack(socket net.Conn, buffer []byte, size int, cal
 
 	for sizeLeft > 0 {
 		sizeWrite, err := socket.Write(buffer[actualWrite:size])
-		if err != nil {
-			return xerrors.Errorf("failed to write to socket: %w", err)
+
+		if sizeWrite > 0 {
+			sizeLeft -= sizeWrite
+			actualWrite += sizeWrite
+
+			if callback != nil {
+				callback(int64(actualWrite), int64(totalSizeToSend))
+			}
 		}
 
-		sizeLeft -= sizeWrite
-		actualWrite += sizeWrite
+		if err != nil {
+			if err == io.EOF {
+				return io.EOF
+			}
 
-		if callback != nil {
-			callback(int64(actualWrite), int64(totalSizeToSend))
+			return xerrors.Errorf("failed to write to socket: %w", err)
 		}
 	}
 
