@@ -182,7 +182,9 @@ func (conn *IRODSConnection) setSocketOpt(socket net.Conn, bufferSize int) {
 
 	if tcpSocket, ok := socket.(*net.TCPConn); ok {
 		// TCP socket
-		tcpSocket.SetNoDelay(true)
+
+		// nodelay is default
+		// tcpSocket.SetNoDelay(true)
 
 		tcpSocket.SetKeepAlive(true)
 		tcpSocket.SetKeepAlivePeriod(15 * time.Second) // 15 seconds
