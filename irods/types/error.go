@@ -117,7 +117,7 @@ func NewAuthError(config *IRODSAccount) error {
 
 // Error returns error message
 func (err *AuthError) Error() string {
-	return fmt.Sprintf("authentication error (auth scheme: '%s', username: '%s', zone: '%s')", err.Config.AuthenticationScheme, err.Config.ClientUser, err.Config.ClientZone)
+	return fmt.Sprintf("authentication error (auth scheme: %q, proxy username: %q, client username: %q, client zone: %q)", err.Config.AuthenticationScheme, err.Config.ProxyUser, err.Config.ClientUser, err.Config.ClientZone)
 }
 
 // Is tests type of error
@@ -185,7 +185,7 @@ func NewCollectionNotEmptyError(p string) error {
 
 // Error returns error message
 func (err *CollectionNotEmptyError) Error() string {
-	return fmt.Sprintf("collection not empty for path %s", err.Path)
+	return fmt.Sprintf("collection not empty for path %q", err.Path)
 }
 
 // Is tests type of error
@@ -196,7 +196,7 @@ func (err *CollectionNotEmptyError) Is(other error) bool {
 
 // ToString stringifies the object
 func (err *CollectionNotEmptyError) ToString() string {
-	return fmt.Sprintf("<CollectionNotEmptyError %s>", err.Path)
+	return fmt.Sprintf("<CollectionNotEmptyError %q>", err.Path)
 }
 
 // IsCollectionNotEmptyError evaluates if the given error is collection not empty error
@@ -218,7 +218,7 @@ func NewFileNotFoundError(p string) error {
 
 // Error returns error message
 func (err *FileNotFoundError) Error() string {
-	return fmt.Sprintf("data object/collection not found for path %s", err.Path)
+	return fmt.Sprintf("data object/collection not found for path %q", err.Path)
 }
 
 // Is tests type of error
@@ -229,7 +229,7 @@ func (err *FileNotFoundError) Is(other error) bool {
 
 // ToString stringifies the object
 func (err *FileNotFoundError) ToString() string {
-	return fmt.Sprintf("<FileNotFoundError %s>", err.Path)
+	return fmt.Sprintf("<FileNotFoundError %q>", err.Path)
 }
 
 // IsFileNotFoundError checks if the given error is FileNotFoundError
@@ -251,7 +251,7 @@ func NewFileAlreadyExistError(p string) error {
 
 // Error returns error message
 func (err *FileAlreadyExistError) Error() string {
-	return fmt.Sprintf("data object/collection already exist for path %s", err.Path)
+	return fmt.Sprintf("data object/collection already exist for path %q", err.Path)
 }
 
 // Is tests type of error
@@ -262,7 +262,7 @@ func (err *FileAlreadyExistError) Is(other error) bool {
 
 // ToString stringifies the object
 func (err *FileAlreadyExistError) ToString() string {
-	return fmt.Sprintf("<FileAlreadyExistError %s>", err.Path)
+	return fmt.Sprintf("<FileAlreadyExistError %q>", err.Path)
 }
 
 // IsFileAlreadyExistError checks if the given error is FileAlreadyExistError
@@ -336,6 +336,39 @@ func IsUserNotFoundError(err error) bool {
 	return errors.Is(err, &UserNotFoundError{})
 }
 
+// APINotSupportedError contains api not supported error information
+type APINotSupportedError struct {
+	APINumber common.APINumber
+}
+
+// NewAPINotSupportedError creates an error for api not supported
+func NewAPINotSupportedError(apiNumber common.APINumber) error {
+	return &APINotSupportedError{
+		APINumber: apiNumber,
+	}
+}
+
+// Error returns error message
+func (err *APINotSupportedError) Error() string {
+	return fmt.Sprintf("API number %d not supported", err.APINumber)
+}
+
+// Is tests type of error
+func (err *APINotSupportedError) Is(other error) bool {
+	_, ok := other.(*APINotSupportedError)
+	return ok
+}
+
+// ToString stringifies the object
+func (err *APINotSupportedError) ToString() string {
+	return fmt.Sprintf("<APINotSupportedError %d>", err.APINumber)
+}
+
+// IsAPINotSupportedError checks if the given error is APINotSupportedError
+func IsAPINotSupportedError(err error) bool {
+	return errors.Is(err, &APINotSupportedError{})
+}
+
 // IRODSError contains irods error information
 type IRODSError struct {
 	Code              common.ErrorCode
@@ -403,7 +436,7 @@ func GetIRODSErrorCode(err error) common.ErrorCode {
 	return common.ErrorCode(0)
 }
 
-// IsPermanantFailure returns if given error is permanant failure
+// IsPermanantFailure returns if given error is permanent failure
 func IsPermanantFailure(err error) bool {
 	if err == nil {
 		return false

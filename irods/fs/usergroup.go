@@ -83,7 +83,7 @@ func GetGroup(conn *connection.IRODSConnection, group string) (*types.IRODSUser,
 				case int(common.ICAT_COLUMN_USER_ID):
 					userID, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse user id '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse user id %q: %w", value, err)
 					}
 					pagenatedUsers[row].ID = userID
 				case int(common.ICAT_COLUMN_USER_ZONE):
@@ -107,7 +107,7 @@ func GetGroup(conn *connection.IRODSConnection, group string) (*types.IRODSUser,
 	}
 
 	if len(users) == 0 {
-		return nil, xerrors.Errorf("failed to find the group for name %s: %w", group, types.NewUserNotFoundError(group))
+		return nil, xerrors.Errorf("failed to find the group for name %q: %w", group, types.NewUserNotFoundError(group))
 	}
 
 	return users[0], nil
@@ -185,7 +185,7 @@ func ListGroupUsers(conn *connection.IRODSConnection, group string) ([]*types.IR
 				case int(common.ICAT_COLUMN_USER_ID):
 					userID, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse user id '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse user id %q: %w", value, err)
 					}
 					pagenatedUsers[row].ID = userID
 				case int(common.ICAT_COLUMN_USER_ZONE):
@@ -283,7 +283,7 @@ func ListGroups(conn *connection.IRODSConnection) ([]*types.IRODSUser, error) {
 				case int(common.ICAT_COLUMN_USER_ID):
 					userID, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse user id '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse user id %q: %w", value, err)
 					}
 					pagenatedGroups[row].ID = userID
 				case int(common.ICAT_COLUMN_USER_ZONE):
@@ -381,7 +381,7 @@ func ListUsers(conn *connection.IRODSConnection) ([]*types.IRODSUser, error) {
 				case int(common.ICAT_COLUMN_USER_ID):
 					userID, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse user id '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse user id %q: %w", value, err)
 					}
 					pagenatedUsers[row].ID = userID
 				case int(common.ICAT_COLUMN_USER_ZONE):
@@ -508,15 +508,15 @@ func ChangeUserPassword(conn *connection.IRODSConnection, username string, zone 
 	account := conn.GetAccount()
 
 	oldPassword := account.Password
-	if account.AuthenticationScheme == types.AuthSchemePAM {
+	if account.AuthenticationScheme.IsPAM() {
 		oldPassword = conn.GetPAMToken()
 	}
 
 	scrambledPassword := util.ObfuscateNewPassword(newPassword, oldPassword, conn.GetClientSignature())
 
-	req := message.NewIRODSMessageAdminRequest("modify", "user", userZoneName, "password", scrambledPassword, zone)
+	req := message.NewIRODSMessageAdminChangePasswordRequest(userZoneName, scrambledPassword, zone)
 
-	err := conn.RequestAndCheckForPassword(req, &message.IRODSMessageAdminResponse{}, nil)
+	err := conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil)
 	if err != nil {
 		return xerrors.Errorf("received change user password error: %w", err)
 	}
@@ -563,7 +563,7 @@ func CreateGroup(conn *connection.IRODSConnection, groupname string, groupType s
 
 	req := message.NewIRODSMessageAdminRequest("add", "user", groupname, groupType)
 
-	err := conn.RequestAndCheck(req, &message.IRODSMessageUserAdminResponse{}, nil)
+	err := conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil)
 	if err != nil {
 		return xerrors.Errorf("received create group error: %w", err)
 	}
@@ -578,7 +578,7 @@ func AddGroupMember(conn *connection.IRODSConnection, groupname string, username
 
 	req := message.NewIRODSMessageAdminRequest("modify", "group", groupname, "add", username, zone)
 
-	err := conn.RequestAndCheck(req, &message.IRODSMessageUserAdminResponse{}, nil)
+	err := conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil)
 	if err != nil {
 		return xerrors.Errorf("received add group member error: %w", err)
 	}
@@ -593,7 +593,7 @@ func RemoveGroupMember(conn *connection.IRODSConnection, groupname string, usern
 
 	req := message.NewIRODSMessageAdminRequest("modify", "group", groupname, "remove", username, zone)
 
-	err := conn.RequestAndCheck(req, &message.IRODSMessageUserAdminResponse{}, nil)
+	err := conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil)
 	if err != nil {
 		return xerrors.Errorf("received remove group member error: %w", err)
 	}
@@ -670,7 +670,7 @@ func ListUserResourceQuota(conn *connection.IRODSConnection, user string) ([]*ty
 				case int(common.ICAT_COLUMN_QUOTA_LIMIT):
 					limit, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse quota limit '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse quota limit %q: %w", value, err)
 					}
 					pagenatedQuota[row].Limit = limit
 				default:
@@ -755,7 +755,7 @@ func GetUserGlobalQuota(conn *connection.IRODSConnection, user string) (*types.I
 				case int(common.ICAT_COLUMN_QUOTA_LIMIT):
 					limit, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse quota limit '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse quota limit %q: %w", value, err)
 					}
 					pagenatedQuota[row].Limit = limit
 				default:
@@ -891,7 +891,7 @@ func ListUserMeta(conn *connection.IRODSConnection, user string) ([]*types.IRODS
 				case int(common.ICAT_COLUMN_META_USER_ATTR_ID):
 					avuID, err := strconv.ParseInt(value, 10, 64)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse user metadata id '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse user metadata id %q: %w", value, err)
 					}
 					pagenatedMetas[row].AVUID = avuID
 				case int(common.ICAT_COLUMN_META_USER_ATTR_NAME):
@@ -903,13 +903,13 @@ func ListUserMeta(conn *connection.IRODSConnection, user string) ([]*types.IRODS
 				case int(common.ICAT_COLUMN_META_USER_CREATE_TIME):
 					cT, err := util.GetIRODSDateTime(value)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse create time '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse create time %q: %w", value, err)
 					}
 					pagenatedMetas[row].CreateTime = cT
 				case int(common.ICAT_COLUMN_META_USER_MODIFY_TIME):
 					mT, err := util.GetIRODSDateTime(value)
 					if err != nil {
-						return nil, xerrors.Errorf("failed to parse modify time '%s': %w", value, err)
+						return nil, xerrors.Errorf("failed to parse modify time %q: %w", value, err)
 					}
 					pagenatedMetas[row].ModifyTime = mT
 				default:

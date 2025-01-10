@@ -22,7 +22,7 @@ func (fs *FileSystem) ListACLs(path string) ([]*types.IRODSAccess, error) {
 		return fs.ListFileACLs(path)
 	}
 
-	return nil, xerrors.Errorf("unknown type - %s", stat.Type)
+	return nil, xerrors.Errorf("unknown type %q", stat.Type)
 }
 
 // ListACLsForEntries returns ACLs for entries in a collection
@@ -62,7 +62,7 @@ func (fs *FileSystem) ListACLsWithGroupUsers(path string) ([]*types.IRODSAccess,
 
 		accesses = append(accesses, accessList...)
 	} else {
-		return nil, xerrors.Errorf("unknown type '%s'", stat.Type)
+		return nil, xerrors.Errorf("unknown type %q", stat.Type)
 	}
 
 	return accesses, nil
@@ -73,11 +73,11 @@ func (fs *FileSystem) GetDirACLInheritance(path string) (*types.IRODSAccessInher
 	irodsPath := util.GetCorrectIRODSPath(path)
 
 	// retrieve it
-	conn, err := fs.metaSession.AcquireConnection()
+	conn, err := fs.metadataSession.AcquireConnection()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.metaSession.ReturnConnection(conn)
+	defer fs.metadataSession.ReturnConnection(conn) //nolint
 
 	inheritance, err := irods_fs.GetCollectionAccessInheritance(conn, irodsPath)
 	if err != nil {
@@ -98,11 +98,11 @@ func (fs *FileSystem) ListDirACLs(path string) ([]*types.IRODSAccess, error) {
 	}
 
 	// otherwise, retrieve it and add it to cache
-	conn, err := fs.metaSession.AcquireConnection()
+	conn, err := fs.metadataSession.AcquireConnection()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.metaSession.ReturnConnection(conn)
+	defer fs.metadataSession.ReturnConnection(conn) //nolint
 
 	accesses, err := irods_fs.ListCollectionAccesses(conn, irodsPath)
 	if err != nil {
@@ -170,11 +170,11 @@ func (fs *FileSystem) ListFileACLs(path string) ([]*types.IRODSAccess, error) {
 	}
 
 	// otherwise, retrieve it and add it to cache
-	conn, err := fs.metaSession.AcquireConnection()
+	conn, err := fs.metadataSession.AcquireConnection()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.metaSession.ReturnConnection(conn)
+	defer fs.metadataSession.ReturnConnection(conn) //nolint
 
 	collectionEntry, err := fs.getCollection(util.GetIRODSPathDirname(irodsPath))
 	if err != nil {
@@ -262,11 +262,11 @@ func (fs *FileSystem) listACLsForEntries(collection *types.IRODSCollection) ([]*
 	}
 
 	// otherwise, retrieve it and add it to cache
-	conn, err := fs.metaSession.AcquireConnection()
+	conn, err := fs.metadataSession.AcquireConnection()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.metaSession.ReturnConnection(conn)
+	defer fs.metadataSession.ReturnConnection(conn) //nolint
 
 	// ListAccessesForSubCollections does not return Accesses for some files/dirs
 	// For these files/dirs, we compare accesses we obtained to the list of files/dirs in a dir

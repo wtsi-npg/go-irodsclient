@@ -5,20 +5,20 @@ import (
 
 	"github.com/cyverse/go-irodsclient/irods/common"
 	"golang.org/x/xerrors"
-	"gopkg.in/yaml.v3"
 )
 
 const (
 	// PamTTLDefault is a default value for Pam TTL
-	PamTTLDefault       int    = 1
+	PamTTLDefault       int    = 0 // sever decides
 	UsernameRegexString string = "^((\\w|[-.@])+)$"
+	HashSchemeDefault   string = "SHA256"
 )
 
 // IRODSAccount contains irods login information
 type IRODSAccount struct {
 	AuthenticationScheme    AuthScheme
 	ClientServerNegotiation bool
-	CSNegotiationPolicy     CSNegotiationRequire
+	CSNegotiationPolicy     CSNegotiationPolicyRequest
 	Host                    string
 	Port                    int
 	ClientUser              string
@@ -28,11 +28,10 @@ type IRODSAccount struct {
 	Password                string
 	Ticket                  string
 	DefaultResource         string
+	DefaultHashScheme       string
 	PamTTL                  int
-	PamToken                string
+	PAMToken                string
 	SSLConfiguration        *IRODSSSLConfig
-	ServerNameTLS           string // Optional TLS Server Name for SNI connection and TLS verification - defaults to Host
-	SkipVerifyTLS           bool   // Skip TLS verification
 }
 
 // CreateIRODSAccount creates IRODSAccount
@@ -41,7 +40,7 @@ func CreateIRODSAccount(host string, port int, user string, zone string,
 	account := &IRODSAccount{
 		AuthenticationScheme:    authScheme,
 		ClientServerNegotiation: false,
-		CSNegotiationPolicy:     CSNegotiationDontCare,
+		CSNegotiationPolicy:     CSNegotiationPolicyRequestDontCare,
 		Host:                    host,
 		Port:                    port,
 		ClientUser:              user,
@@ -51,8 +50,9 @@ func CreateIRODSAccount(host string, port int, user string, zone string,
 		Password:                password,
 		Ticket:                  "",
 		DefaultResource:         defaultResource,
+		DefaultHashScheme:       HashSchemeDefault,
 		PamTTL:                  PamTTLDefault,
-		PamToken:                "",
+		PAMToken:                "",
 		SSLConfiguration:        nil,
 	}
 
@@ -67,7 +67,7 @@ func CreateIRODSAccountForTicket(host string, port int, user string, zone string
 	account := &IRODSAccount{
 		AuthenticationScheme:    authScheme,
 		ClientServerNegotiation: false,
-		CSNegotiationPolicy:     CSNegotiationDontCare,
+		CSNegotiationPolicy:     CSNegotiationPolicyRequestDontCare,
 		Host:                    host,
 		Port:                    port,
 		ClientUser:              user,
@@ -77,8 +77,9 @@ func CreateIRODSAccountForTicket(host string, port int, user string, zone string
 		Password:                password,
 		Ticket:                  ticket,
 		DefaultResource:         defaultResource,
+		DefaultHashScheme:       HashSchemeDefault,
 		PamTTL:                  PamTTLDefault,
-		PamToken:                "",
+		PAMToken:                "",
 		SSLConfiguration:        nil,
 	}
 
@@ -94,7 +95,7 @@ func CreateIRODSProxyAccount(host string, port int, clientUser string, clientZon
 	account := &IRODSAccount{
 		AuthenticationScheme:    authScheme,
 		ClientServerNegotiation: false,
-		CSNegotiationPolicy:     CSNegotiationDontCare,
+		CSNegotiationPolicy:     CSNegotiationPolicyRequestDontCare,
 		Host:                    host,
 		Port:                    port,
 		ClientUser:              clientUser,
@@ -104,215 +105,10 @@ func CreateIRODSProxyAccount(host string, port int, clientUser string, clientZon
 		Password:                password,
 		Ticket:                  "",
 		DefaultResource:         defaultResource,
+		DefaultHashScheme:       HashSchemeDefault,
 		PamTTL:                  PamTTLDefault,
-		PamToken:                "",
+		PAMToken:                "",
 		SSLConfiguration:        nil,
-	}
-
-	account.FixAuthConfiguration()
-
-	return account, nil
-}
-
-// CreateIRODSAccountFromYAML creates IRODSAccount from YAML
-func CreateIRODSAccountFromYAML(yamlBytes []byte) (*IRODSAccount, error) {
-	y := make(map[string]interface{})
-
-	err := yaml.Unmarshal(yamlBytes, &y)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal yaml to map: %w", err)
-	}
-
-	authScheme := AuthSchemeNative
-	if val, ok := y["auth_scheme"]; ok {
-		authScheme = GetAuthScheme(val.(string))
-		if authScheme == AuthSchemeUnknown {
-			authScheme = AuthSchemeNative
-		}
-	}
-
-	csNegotiation := false
-	if val, ok := y["cs_negotiation"]; ok {
-		csNegotiation = val.(bool)
-	}
-
-	csNegotiationPolicy := CSNegotiationDontCare
-	if val, ok := y["cs_negotiation_policy"]; ok {
-		csNegotiationPolicy, err = GetCSNegotiationRequire(val.(string))
-		if err != nil {
-			csNegotiationPolicy = CSNegotiationDontCare
-		}
-	}
-
-	host := make(map[string]interface{})
-	if val, ok := y["host"]; ok {
-		host = val.(map[string]interface{})
-	}
-
-	hostname := ""
-	if val, ok := host["hostname"]; ok {
-		hostname = val.(string)
-	}
-
-	port := 1247
-	if val, ok := host["port"]; ok {
-		port = val.(int)
-	}
-
-	defaultResource := ""
-	if val, ok := y["default_resource"]; ok {
-		defaultResource = val.(string)
-	}
-
-	// proxy user
-	proxyUser := make(map[string]interface{})
-	if val, ok := y["proxy_user"]; ok {
-		proxyUser = val.(map[string]interface{})
-	}
-
-	proxyUsername := ""
-	if val, ok := proxyUser["username"]; ok {
-		proxyUsername = val.(string)
-	}
-
-	proxyPassword := ""
-	if val, ok := proxyUser["password"]; ok {
-		proxyPassword = val.(string)
-	}
-
-	proxyZone := ""
-	if val, ok := proxyUser["zone"]; ok {
-		proxyZone = val.(string)
-	}
-
-	ticket := ""
-	if val, ok := proxyUser["ticket"]; ok {
-		ticket = val.(string)
-	}
-
-	// client user
-	clientUser := make(map[string]interface{})
-	if val, ok := y["client_user"]; ok {
-		clientUser = val.(map[string]interface{})
-	}
-
-	clientUsername := ""
-	if val, ok := clientUser["username"]; ok {
-		clientUsername = val.(string)
-	}
-
-	clientZone := ""
-	if val, ok := clientUser["zone"]; ok {
-		clientZone = val.(string)
-	}
-
-	if val, ok := clientUser["ticket"]; ok {
-		ticket = val.(string)
-	}
-
-	// normal user
-	user := make(map[string]interface{})
-	if val, ok := y["user"]; ok {
-		user = val.(map[string]interface{})
-	}
-
-	if val, ok := user["username"]; ok {
-		proxyUsername = val.(string)
-		clientUsername = proxyUsername
-
-	}
-
-	if val, ok := user["password"]; ok {
-		proxyPassword = val.(string)
-	}
-
-	if val, ok := user["zone"]; ok {
-		proxyZone = val.(string)
-		clientZone = proxyZone
-	}
-
-	if val, ok := user["ticket"]; ok {
-		ticket = val.(string)
-	}
-
-	// PAM Configuration
-	pamConfig := make(map[string]interface{})
-	if val, ok := y["pam"]; ok {
-		pamConfig = val.(map[string]interface{})
-	}
-
-	pamTTL := 0
-	if val, ok := pamConfig["ttl"]; ok {
-		pamTTL = val.(int)
-	}
-
-	pamToken := ""
-	if val, ok := pamConfig["token"]; ok {
-		pamToken = val.(string)
-	}
-
-	// SSL Configuration
-	hasSSLConfig := false
-	sslConfig := make(map[string]interface{})
-	if val, ok := y["ssl"]; ok {
-		sslConfig = val.(map[string]interface{})
-		hasSSLConfig = true
-	}
-
-	caCertFile := ""
-	if val, ok := sslConfig["ca_cert_file"]; ok {
-		caCertFile = val.(string)
-	}
-
-	caCertPath := ""
-	if val, ok := sslConfig["ca_cert_path"]; ok {
-		caCertPath = val.(string)
-	}
-
-	keySize := 0
-	if val, ok := sslConfig["key_size"]; ok {
-		keySize = val.(int)
-	}
-
-	algorithm := ""
-	if val, ok := sslConfig["algorithm"]; ok {
-		algorithm = val.(string)
-	}
-
-	saltSize := 0
-	if val, ok := sslConfig["salt_size"]; ok {
-		saltSize = val.(int)
-	}
-
-	hashRounds := 0
-	if val, ok := sslConfig["hash_rounds"]; ok {
-		hashRounds = val.(int)
-	}
-
-	var irodsSSLConfig *IRODSSSLConfig = nil
-	if hasSSLConfig {
-		irodsSSLConfig, err = CreateIRODSSSLConfig(caCertFile, caCertPath, keySize, algorithm, saltSize, hashRounds)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to create irods ssl config: %w", err)
-		}
-	}
-
-	account := &IRODSAccount{
-		AuthenticationScheme:    authScheme,
-		ClientServerNegotiation: csNegotiation,
-		CSNegotiationPolicy:     csNegotiationPolicy,
-		Host:                    hostname,
-		Port:                    port,
-		ClientUser:              clientUsername,
-		ClientZone:              clientZone,
-		ProxyUser:               proxyUsername,
-		ProxyZone:               proxyZone,
-		Password:                proxyPassword,
-		Ticket:                  ticket,
-		DefaultResource:         defaultResource,
-		PamTTL:                  pamTTL,
-		PamToken:                pamToken,
-		SSLConfiguration:        irodsSSLConfig,
 	}
 
 	account.FixAuthConfiguration()
@@ -326,7 +122,7 @@ func (account *IRODSAccount) SetSSLConfiguration(sslConf *IRODSSSLConfig) {
 }
 
 // SetCSNegotiation sets CSNegotiation policy
-func (account *IRODSAccount) SetCSNegotiation(requireNegotiation bool, requirePolicy CSNegotiationRequire) {
+func (account *IRODSAccount) SetCSNegotiation(requireNegotiation bool, requirePolicy CSNegotiationPolicyRequest) {
 	account.ClientServerNegotiation = requireNegotiation
 	account.CSNegotiationPolicy = requirePolicy
 
@@ -359,13 +155,13 @@ func (account *IRODSAccount) Validate() error {
 
 	err := account.validateUsername(account.ProxyUser)
 	if err != nil {
-		return xerrors.Errorf("failed to validate username %s: %w", account.ProxyUser, err)
+		return xerrors.Errorf("failed to validate username %q: %w", account.ProxyUser, err)
 	}
 
 	if len(account.ClientUser) > 0 {
 		err = account.validateUsername(account.ClientUser)
 		if err != nil {
-			return xerrors.Errorf("failed to validate username %s: %w", account.ProxyUser, err)
+			return xerrors.Errorf("failed to validate username %q: %w", account.ClientUser, err)
 		}
 	}
 
@@ -377,15 +173,15 @@ func (account *IRODSAccount) Validate() error {
 		return xerrors.Errorf("unknown authentication scheme")
 	}
 
-	if account.AuthenticationScheme != AuthSchemeNative && account.CSNegotiationPolicy != CSNegotiationRequireSSL {
+	if account.AuthenticationScheme != AuthSchemeNative && account.CSNegotiationPolicy != CSNegotiationPolicyRequestSSL {
 		return xerrors.Errorf("SSL is required for non-native authentication scheme")
 	}
 
-	if account.CSNegotiationPolicy == CSNegotiationRequireSSL && !account.ClientServerNegotiation {
+	if account.CSNegotiationPolicy == CSNegotiationPolicyRequestSSL && !account.ClientServerNegotiation {
 		return xerrors.Errorf("client-server negotiation is required for SSL")
 	}
 
-	if account.CSNegotiationPolicy == CSNegotiationRequireSSL && account.SSLConfiguration == nil {
+	if account.CSNegotiationPolicy == CSNegotiationPolicyRequestSSL && account.SSLConfiguration == nil {
 		return xerrors.Errorf("SSL configuration is empty")
 	}
 
@@ -418,19 +214,34 @@ func (account *IRODSAccount) FixAuthConfiguration() {
 	}
 
 	if account.AuthenticationScheme != AuthSchemeNative {
-		account.CSNegotiationPolicy = CSNegotiationRequireSSL
+		account.CSNegotiationPolicy = CSNegotiationPolicyRequestSSL
 	}
 
-	if account.CSNegotiationPolicy == CSNegotiationRequireSSL {
+	if account.CSNegotiationPolicy == CSNegotiationPolicyRequestSSL {
 		account.ClientServerNegotiation = true
+	}
+
+	if len(account.ProxyUser) == 0 {
+		account.ProxyUser = account.ClientUser
+	}
+
+	if len(account.ClientUser) == 0 {
+		account.ClientUser = account.ProxyUser
+	}
+
+	if len(account.ProxyZone) == 0 {
+		account.ProxyZone = account.ClientZone
+	}
+
+	if len(account.ClientZone) == 0 {
+		account.ClientZone = account.ProxyZone
 	}
 }
 
 func (account *IRODSAccount) GetRedacted() *IRODSAccount {
-	account2 := IRODSAccount{}
-	account2 = *account
+	account2 := *account
 	account2.Password = "<Redacted>"
-	account2.PamToken = "<Redacted>"
+	account2.PAMToken = "<Redacted>"
 	account2.Ticket = "<Redacted>"
 
 	return &account2

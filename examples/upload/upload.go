@@ -1,14 +1,15 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/cyverse/go-irodsclient/config"
 	"github.com/cyverse/go-irodsclient/fs"
-	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/go-irodsclient/irods/util"
 
 	log "github.com/sirupsen/logrus"
@@ -33,18 +34,13 @@ func main() {
 	destPath := args[1]
 
 	// Read account configuration from YAML file
-	yaml, err := os.ReadFile("account.yml")
+	cfg, err := config.NewConfigFromYAMLFile(config.GetDefaultConfig(), "account.yml")
 	if err != nil {
 		logger.Error(err)
 		panic(err)
 	}
 
-	account, err := types.CreateIRODSAccountFromYAML(yaml)
-	if err != nil {
-		logger.Error(err)
-		panic(err)
-	}
-
+	account := cfg.ToIRODSAccount()
 	logger.Debugf("Account : %v", account.GetRedacted())
 
 	// Create a file system
@@ -73,11 +69,16 @@ func main() {
 
 	tstart := time.Now()
 
-	err = filesystem.UploadFile(srcPath, destPath, "", false, track)
+	result, err := filesystem.UploadFile(srcPath, destPath, "", false, true, true, track)
 	if err != nil {
 		logger.Error(err)
 		panic(err)
 	}
+
+	logger.Infof("iRODS path: %q", result.IRODSPath)
+	logger.Infof("Local path: %q", result.LocalPath)
+	logger.Infof("Checksum: iRODS: %s:%q, Local: %s:%q", result.IRODSCheckSumAlgorithm, hex.EncodeToString(result.IRODSCheckSum), result.LocalCheckSumAlgorithm, hex.EncodeToString(result.LocalCheckSum))
+	logger.Infof("Size: iRODS: %d, Local: %d", result.IRODSSize, result.LocalSize)
 
 	ttaken := time.Since(tstart)
 
@@ -88,7 +89,7 @@ func main() {
 	}
 
 	if fsentry.Type == fs.FileEntry {
-		fmt.Printf("Successfully uploaded a file %s to %s, size = %d\n", srcPath, destPath, fsentry.Size)
+		fmt.Printf("Successfully uploaded a file %q to %q, size = %d\n", srcPath, destPath, fsentry.Size)
 	} else {
 		// dir
 		srcFileName := util.GetIRODSPathFileName(srcPath)
@@ -101,9 +102,9 @@ func main() {
 		}
 
 		if fsentry2.Type == fs.FileEntry {
-			fmt.Printf("Successfully uploaded a file %s to %s, size = %d\n", srcPath, destFilePath, fsentry2.Size)
+			fmt.Printf("Successfully uploaded a file %q to %q, size = %d\n", srcPath, destFilePath, fsentry2.Size)
 		} else {
-			logger.Errorf("Unkonwn file type - %s", fsentry2.Type)
+			logger.Errorf("Unknown file type %q", fsentry2.Type)
 		}
 	}
 

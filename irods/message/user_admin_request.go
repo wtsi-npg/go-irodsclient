@@ -110,3 +110,8 @@ func (msg *IRODSMessageUserAdminRequest) GetMessage() (*IRODSMessage, error) {
 		Body:   &msgBody,
 	}, nil
 }
+
+// GetXMLCorrector returns XML corrector for this message
+func (msg *IRODSMessageUserAdminRequest) GetXMLCorrector() XMLCorrector {
+	return GetXMLCorrectorForRequest()
+}

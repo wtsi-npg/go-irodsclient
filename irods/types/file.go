@@ -37,6 +37,7 @@ const (
 	FileOpenModeReadAppend FileOpenMode = "a+"
 )
 
+//nolint:golint
 const (
 	// O_RDONLY is for read
 	O_RDONLY FileOpenFlag = 0
@@ -58,6 +59,26 @@ const (
 func (mode FileOpenMode) GetFlag() int {
 	flag, _ := mode.GetFlagSeekToEnd()
 	return flag
+}
+
+// Truncate returns if the mode needs truncating the file
+func (mode FileOpenMode) Truncate() bool {
+	switch mode {
+	case FileOpenModeReadOnly:
+		return false
+	case FileOpenModeReadWrite:
+		return false
+	case FileOpenModeWriteOnly:
+		return false
+	case FileOpenModeWriteTruncate:
+		return true
+	case FileOpenModeAppend:
+		return false
+	case FileOpenModeReadAppend:
+		return false
+	default:
+		return false
+	}
 }
 
 // SeekToEnd returns if the mode needs seeking to end
@@ -87,7 +108,7 @@ func (mode FileOpenMode) GetFlagSeekToEnd() (int, bool) {
 	case FileOpenModeReadAppend:
 		return int(O_RDWR) | int(O_CREAT), true
 	default:
-		logger.Errorf("Unhandled file open mode %s", mode)
+		logger.Errorf("Unhandled file open mode %q", mode)
 		return -1, false
 	}
 }

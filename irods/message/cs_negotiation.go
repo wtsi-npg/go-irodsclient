@@ -26,7 +26,7 @@ type IRODSMessageCSNegotiation struct {
 }
 
 // NewIRODSMessageCSNegotiation creates a IRODSMessageCSNegotiation message
-func NewIRODSMessageCSNegotiation(result types.CSNegotiationPolicy) *IRODSMessageCSNegotiation {
+func NewIRODSMessageCSNegotiation(result types.CSNegotiationResult) *IRODSMessageCSNegotiation {
 	status := 1
 	if result == types.CSNegotiationFailure {
 		// meaning failure
@@ -100,7 +100,11 @@ func (msg *IRODSMessageCSNegotiation) FromMessage(msgIn *IRODSMessage) error {
 
 	err := msg.FromBytes(msgIn.Body.Message)
 	if err != nil {
-		return xerrors.Errorf("failed to get irods message from message body")
+		return xerrors.Errorf("failed to get irods message from message body: %w", err)
 	}
 	return nil
+}
+
+func (msg *IRODSMessageCSNegotiation) GetXMLCorrector() XMLCorrector {
+	return GetXMLCorrectorForRequest()
 }

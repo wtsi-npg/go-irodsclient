@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/cyverse/go-irodsclient/irods/common"
 	"github.com/cyverse/go-irodsclient/irods/connection"
 	irods_fs "github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
@@ -96,7 +97,7 @@ func (handle *FileHandle) Close() error {
 		handle.irodsFileLockHandle = nil
 	}
 
-	defer handle.filesystem.ioSession.ReturnConnection(handle.connection)
+	defer handle.filesystem.ioSession.ReturnConnection(handle.connection) //nolint
 
 	err := irods_fs.CloseDataObject(handle.connection, handle.irodsFileHandle)
 	handle.filesystem.fileHandleMap.Remove(handle.id)
@@ -142,7 +143,7 @@ func (handle *FileHandle) Read(buffer []byte) (int, error) {
 	defer handle.mutex.Unlock()
 
 	if !handle.IsReadMode() {
-		return 0, xerrors.Errorf("file is opened with %s mode", handle.openMode)
+		return 0, xerrors.Errorf("file is opened with %q mode", handle.openMode)
 	}
 
 	readLen, err := irods_fs.ReadDataObject(handle.connection, handle.irodsFileHandle, buffer)
@@ -160,7 +161,7 @@ func (handle *FileHandle) ReadAt(buffer []byte, offset int64) (int, error) {
 	defer handle.mutex.Unlock()
 
 	if !handle.IsReadMode() {
-		return 0, xerrors.Errorf("file is opened with %s mode", handle.openMode)
+		return 0, xerrors.Errorf("file is opened with %q mode", handle.openMode)
 	}
 
 	if handle.offset != offset {
@@ -191,7 +192,7 @@ func (handle *FileHandle) Write(data []byte) (int, error) {
 	defer handle.mutex.Unlock()
 
 	if !handle.IsWriteMode() {
-		return 0, xerrors.Errorf("file is opened with %s mode", handle.openMode)
+		return 0, xerrors.Errorf("file is opened with %q mode", handle.openMode)
 	}
 
 	err := irods_fs.WriteDataObject(handle.connection, handle.irodsFileHandle, data)
@@ -215,7 +216,7 @@ func (handle *FileHandle) WriteAt(data []byte, offset int64) (int, error) {
 	defer handle.mutex.Unlock()
 
 	if !handle.IsWriteMode() {
-		return 0, xerrors.Errorf("file is opened with %s mode", handle.openMode)
+		return 0, xerrors.Errorf("file is opened with %q mode", handle.openMode)
 	}
 
 	if handle.offset != offset {
@@ -338,7 +339,8 @@ func (handle *FileHandle) postprocessRename(newPath string, newEntry *Entry) err
 	}
 
 	// reopen
-	newHandle, offset, err := irods_fs.OpenDataObject(handle.connection, newPath, handle.irodsFileHandle.Resource, string(newOpenMode))
+	keywords := map[common.KeyWord]string{}
+	newHandle, offset, err := irods_fs.OpenDataObject(handle.connection, newPath, handle.irodsFileHandle.Resource, string(newOpenMode), keywords)
 	if err != nil {
 		return err
 	}
@@ -363,5 +365,5 @@ func (handle *FileHandle) postprocessRename(newPath string, newEntry *Entry) err
 
 // ToString stringifies the object
 func (handle *FileHandle) ToString() string {
-	return fmt.Sprintf("<FileHandle %d %s %s %s>", handle.entry.ID, handle.entry.Type, handle.entry.Name, handle.openMode)
+	return fmt.Sprintf("<FileHandle %d %q %q %q>", handle.entry.ID, handle.entry.Type, handle.entry.Name, handle.openMode)
 }

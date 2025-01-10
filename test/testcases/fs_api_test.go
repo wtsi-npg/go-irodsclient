@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyverse/go-irodsclient/irods/common"
 	"github.com/cyverse/go-irodsclient/irods/connection"
 	"github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/cyverse/go-irodsclient/irods/session"
@@ -64,7 +65,7 @@ func testGetIRODSCollection(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -83,7 +84,7 @@ func testListIRODSCollections(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -109,7 +110,7 @@ func testListIRODSCollectionMeta(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -129,7 +130,7 @@ func testListIRODSCollectionAccess(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -150,7 +151,7 @@ func testListIRODSDataObjects(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -186,7 +187,7 @@ func testListIRODSDataObjectsMasterReplica(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -224,7 +225,7 @@ func testGetIRODSDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -260,7 +261,7 @@ func testGetIRODSDataObjectMasterReplica(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -297,7 +298,7 @@ func testListIRODSDataObjectMeta(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -327,7 +328,7 @@ func testListIRODSDataObjectAccess(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -358,7 +359,7 @@ func testCreateDeleteIRODSCollection(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -400,7 +401,7 @@ func testCreateMoveDeleteIRODSCollection(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -453,7 +454,7 @@ func testCreateDeleteIRODSDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -463,7 +464,9 @@ func testCreateDeleteIRODSDataObject(t *testing.T) {
 	// create
 	newDataObjectFilename := "testobj_" + xid.New().String()
 	newDataObjectPath := homedir + "/" + newDataObjectFilename
-	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true)
+
+	keywords := map[common.KeyWord]string{}
+	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true, keywords)
 	failError(t, err)
 
 	err = fs.CloseDataObject(conn, handle)
@@ -499,7 +502,7 @@ func testReadWriteIRODSDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -510,7 +513,8 @@ func testReadWriteIRODSDataObject(t *testing.T) {
 	newDataObjectFilename := "testobj_" + xid.New().String()
 	newDataObjectPath := homedir + "/" + newDataObjectFilename
 
-	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true)
+	keywords := map[common.KeyWord]string{}
+	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true, keywords)
 	failError(t, err)
 
 	data := "Hello World"
@@ -528,7 +532,7 @@ func testReadWriteIRODSDataObject(t *testing.T) {
 	assert.NotEmpty(t, obj.ID)
 
 	// read
-	handle, _, err = fs.OpenDataObject(conn, newDataObjectPath, "", "r")
+	handle, _, err = fs.OpenDataObject(conn, newDataObjectPath, "", "r", keywords)
 	failError(t, err)
 
 	buf := make([]byte, len(data))
@@ -551,7 +555,7 @@ func testReadWriteIRODSDataObjectWithSingleConnection(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -562,7 +566,8 @@ func testReadWriteIRODSDataObjectWithSingleConnection(t *testing.T) {
 	newDataObjectFilename := "testobj_" + xid.New().String()
 	newDataObjectPath := homedir + "/" + newDataObjectFilename
 
-	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true)
+	keywords := map[common.KeyWord]string{}
+	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true, keywords)
 	failError(t, err)
 
 	data := "Hello World"
@@ -580,11 +585,11 @@ func testReadWriteIRODSDataObjectWithSingleConnection(t *testing.T) {
 	assert.NotEmpty(t, obj.ID)
 
 	// read 1
-	handle1, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r")
+	handle1, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r", keywords)
 	failError(t, err)
 
 	// read 2
-	handle2, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r")
+	handle2, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r", keywords)
 	failError(t, err)
 
 	buf1 := make([]byte, len(data))
@@ -622,7 +627,7 @@ func testMixedReadWriteIRODSDataObjectWithSingleConnection(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -633,14 +638,15 @@ func testMixedReadWriteIRODSDataObjectWithSingleConnection(t *testing.T) {
 	newSideDataObjectFilename := "testobj_" + xid.New().String()
 	newSideDataObjectPath := homedir + "/" + newSideDataObjectFilename
 
-	handleSide, err := fs.CreateDataObject(conn, newSideDataObjectPath, "", "w", true)
+	keywords := map[common.KeyWord]string{}
+	handleSide, err := fs.CreateDataObject(conn, newSideDataObjectPath, "", "w", true, keywords)
 	failError(t, err)
 
 	// create
 	newDataObjectFilename := "testobj_" + xid.New().String()
 	newDataObjectPath := homedir + "/" + newDataObjectFilename
 
-	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true)
+	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true, keywords)
 	failError(t, err)
 
 	data := "Hello World"
@@ -658,11 +664,11 @@ func testMixedReadWriteIRODSDataObjectWithSingleConnection(t *testing.T) {
 	assert.NotEmpty(t, obj.ID)
 
 	// read 1
-	handle1, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r")
+	handle1, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r", keywords)
 	failError(t, err)
 
 	// read 2
-	handle2, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r")
+	handle2, _, err := fs.OpenDataObject(conn, newDataObjectPath, "", "r", keywords)
 	failError(t, err)
 
 	// write to side file
@@ -715,7 +721,7 @@ func testTruncateIRODSDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -726,7 +732,8 @@ func testTruncateIRODSDataObject(t *testing.T) {
 	newDataObjectFilename := "testobj_" + xid.New().String()
 	newDataObjectPath := homedir + "/" + newDataObjectFilename
 
-	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true)
+	keywords := map[common.KeyWord]string{}
+	handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true, keywords)
 	failError(t, err)
 
 	data := "Hello World Test!!!!"
@@ -747,7 +754,7 @@ func testTruncateIRODSDataObject(t *testing.T) {
 	assert.NotEmpty(t, obj.ID)
 
 	// read
-	handle, _, err = fs.OpenDataObject(conn, newDataObjectPath, "", "r")
+	handle, _, err = fs.OpenDataObject(conn, newDataObjectPath, "", "r", keywords)
 	failError(t, err)
 
 	buf := make([]byte, len(data))
@@ -770,7 +777,7 @@ func testListIRODSGroupUsers(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -795,7 +802,7 @@ func testSearchDataObjectsByMeta(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -821,7 +828,7 @@ func testSearchDataObjectsByMetaWildcard(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
@@ -853,7 +860,7 @@ func testParallelUploadAndDownloadDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	sessionConfig := session.NewIRODSSessionConfigWithDefault("go-irodsclient-test")
+	sessionConfig := GetTestSessionConfig()
 
 	sess, err := session.NewIRODSSession(account, sessionConfig)
 	failError(t, err)
@@ -878,7 +885,8 @@ func testParallelUploadAndDownloadDataObject(t *testing.T) {
 
 	// upload
 	irodsPath := homedir + "/" + filename
-	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "", 4, false, nil)
+
+	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "", 4, false, nil, nil)
 	failError(t, err)
 
 	err = os.Remove(filepath)

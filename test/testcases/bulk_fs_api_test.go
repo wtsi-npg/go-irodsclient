@@ -36,7 +36,7 @@ func testParallelUploadDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	sessionConfig := session.NewIRODSSessionConfigWithDefault("go-irodsclient-test")
+	sessionConfig := GetTestSessionConfig()
 
 	sess, err := session.NewIRODSSession(account, sessionConfig)
 	failError(t, err)
@@ -62,7 +62,7 @@ func testParallelUploadDataObject(t *testing.T) {
 		callbackCalled++
 	}
 
-	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "", 4, false, callBack)
+	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "", 4, false, nil, callBack)
 	failError(t, err)
 	assert.Greater(t, callbackCalled, 10) // at least called 10 times
 
@@ -80,7 +80,7 @@ func testParallelUploadDataObject(t *testing.T) {
 
 	// get
 	callbackCalled = 0
-	err = fs.DownloadDataObjectParallel(sess, irodsPath, "", filename, int64(fileSize), 4, callBack)
+	err = fs.DownloadDataObjectParallel(sess, irodsPath, "", filename, int64(fileSize), 4, nil, callBack)
 	failError(t, err)
 	assert.Greater(t, callbackCalled, 10) // at least called 10 times
 
@@ -110,7 +110,7 @@ func parallelUploadReplication(t *testing.T, sess *session.IRODSSession, filenam
 		callbackCalled++
 	}
 
-	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "replResc", 4, true, callBack)
+	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "replResc", 4, true, nil, callBack)
 	failError(t, err)
 
 	err = os.Remove(filepath)
@@ -128,7 +128,7 @@ func parallelUploadReplication(t *testing.T, sess *session.IRODSSession, filenam
 	assert.NotEmpty(t, obj.ID)
 	assert.Equal(t, int64(fileSize), obj.Size)
 	if obj.Size != int64(fileSize) {
-		t.Logf("error file - %s", irodsPath)
+		t.Logf("error file %q", irodsPath)
 		t.FailNow()
 	}
 
@@ -151,7 +151,7 @@ func testParallelUploadReplicationMulti(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	sessionConfig := session.NewIRODSSessionConfigWithDefault("go-irodsclient-test")
+	sessionConfig := GetTestSessionConfig()
 
 	sess, err := session.NewIRODSSession(account, sessionConfig)
 	failError(t, err)
@@ -181,7 +181,7 @@ func testParallelUploadReplication(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	sessionConfig := session.NewIRODSSessionConfigWithDefault("go-irodsclient-test")
+	sessionConfig := GetTestSessionConfig()
 
 	sess, err := session.NewIRODSSession(account, sessionConfig)
 	failError(t, err)

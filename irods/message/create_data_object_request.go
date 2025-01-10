@@ -16,7 +16,7 @@ func NewIRODSMessageCreateDataObjectRequest(path string, resource string, mode t
 	flag := mode.GetFlag()
 	request := &IRODSMessageCreateDataObjectRequest{
 		Path:          path,
-		CreateMode:    0644,
+		CreateMode:    0, //0644,
 		OpenFlags:     flag,
 		Offset:        0,
 		Size:          -1,
@@ -45,7 +45,7 @@ func NewIRODSMessageCreateobjRequestWithKeyVals(path string, resource string, mo
 	flag := mode.GetFlag()
 	request := &IRODSMessageCreateDataObjectRequest{
 		Path:          path,
-		CreateMode:    0644,
+		CreateMode:    0, //0644,
 		OpenFlags:     flag,
 		Offset:        0,
 		Size:          -1,
@@ -123,4 +123,9 @@ func (msg *IRODSMessageCreateDataObjectRequest) GetMessage() (*IRODSMessage, err
 		Header: msgHeader,
 		Body:   &msgBody,
 	}, nil
+}
+
+// GetXMLCorrector returns XML corrector for this message
+func (msg *IRODSMessageCreateDataObjectRequest) GetXMLCorrector() XMLCorrector {
+	return GetXMLCorrectorForRequest()
 }

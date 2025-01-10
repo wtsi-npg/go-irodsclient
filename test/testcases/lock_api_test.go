@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyverse/go-irodsclient/irods/common"
 	"github.com/cyverse/go-irodsclient/irods/connection"
 	"github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/cyverse/go-irodsclient/irods/types"
@@ -39,12 +40,12 @@ func testSimpleLockIRODSDataObject(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	conn := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err := conn.Connect()
 	failError(t, err)
 	defer conn.Disconnect()
 
-	conn2 := connection.NewIRODSConnection(account, 300*time.Second, "go-irodsclient-test")
+	conn2 := connection.NewIRODSConnection(account, 300*time.Second, GetTestApplicationName())
 	err = conn2.Connect()
 	failError(t, err)
 	defer conn2.Disconnect()
@@ -58,9 +59,11 @@ func testSimpleLockIRODSDataObject(t *testing.T) {
 	taskOrder := []int{}
 	wg := sync.WaitGroup{}
 
+	keywords := map[common.KeyWord]string{}
+
 	wg.Add(1)
 	go func() {
-		handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true)
+		handle, err := fs.CreateDataObject(conn, newDataObjectPath, "", "w", true, keywords)
 		failError(t, err)
 
 		// lock

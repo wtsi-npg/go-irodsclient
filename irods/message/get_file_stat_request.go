@@ -26,7 +26,7 @@ func NewIRODSMessageGetFileStatRequest(resource *types.IRODSResource, obj *types
 	}
 
 	if resource.Name != replica.ResourceName {
-		return nil, xerrors.Errorf("resource name %s does not match replica resource name %s", resource.Name, replica.ResourceName)
+		return nil, xerrors.Errorf("resource name %q does not match replica resource name %q", resource.Name, replica.ResourceName)
 	}
 
 	request := &IRODSMessageGetFileStatRequest{
@@ -82,4 +82,9 @@ func (msg *IRODSMessageGetFileStatRequest) GetMessage() (*IRODSMessage, error) {
 		Header: msgHeader,
 		Body:   &msgBody,
 	}, nil
+}
+
+// GetXMLCorrector returns XML corrector for this message
+func (msg *IRODSMessageGetFileStatRequest) GetXMLCorrector() XMLCorrector {
+	return GetXMLCorrectorForRequest()
 }

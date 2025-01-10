@@ -4,11 +4,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/cyverse/go-irodsclient/irods/common"
 	"github.com/cyverse/go-irodsclient/irods/fs"
 	"github.com/cyverse/go-irodsclient/irods/session"
 	"github.com/cyverse/go-irodsclient/irods/types"
 	"github.com/cyverse/go-irodsclient/irods/util"
-	"github.com/cyverse/go-irodsclient/test/server"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/assert"
 
@@ -36,9 +36,9 @@ func testDownloadDataObjectFromResourceServer(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	sessionConfig := session.NewIRODSSessionConfigWithDefault("go-irodsclient-test")
+	sessionConfig := GetTestSessionConfig()
 
-	sess, err := session.NewIRODSSessionWithAddressResolver(account, sessionConfig, server.AddressResolver)
+	sess, err := session.NewIRODSSession(account, sessionConfig)
 	failError(t, err)
 	defer sess.Release()
 
@@ -62,11 +62,11 @@ func testDownloadDataObjectFromResourceServer(t *testing.T) {
 		callbackCalled++
 	}
 
-	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "", 4, false, callBack)
+	err = fs.UploadDataObjectParallel(sess, filepath, irodsPath, "", 4, false, nil, callBack)
 	failError(t, err)
-	assert.Greater(t, callbackCalled, 10) // at least called 10 times
+	assert.Greater(t, callbackCalled, 3) // at least called 3 times
 
-	checksumOriginal, err := util.HashLocalFile(filepath, string(types.ChecksumAlgorithmSHA1))
+	checksumOriginal, err := util.HashLocalFile(filepath, string(types.ChecksumAlgorithmSHA256))
 	failError(t, err)
 
 	err = os.Remove(filepath)
@@ -82,10 +82,16 @@ func testDownloadDataObjectFromResourceServer(t *testing.T) {
 	assert.Equal(t, int64(fileSize), obj.Size)
 
 	// get
-	err = fs.DownloadDataObjectFromResourceServer(sess, irodsPath, "", filename, int64(fileSize), callBack)
+	keywords := map[common.KeyWord]string{
+		common.VERIFY_CHKSUM_KW: "",
+	}
+
+	checksum, err := fs.DownloadDataObjectFromResourceServer(sess, irodsPath, "", filename, int64(fileSize), 0, keywords, callBack)
 	failError(t, err)
 
-	checksumNew, err := util.HashLocalFile(filename, string(types.ChecksumAlgorithmSHA1))
+	assert.NotEmpty(t, checksum)
+
+	checksumNew, err := util.HashLocalFile(filename, string(types.ChecksumAlgorithmSHA256))
 	failError(t, err)
 
 	err = os.Remove(filename)
@@ -96,6 +102,11 @@ func testDownloadDataObjectFromResourceServer(t *testing.T) {
 	failError(t, err)
 
 	assert.Equal(t, checksumOriginal, checksumNew)
+
+	checksumAlg, checksumStr, err := types.ParseIRODSChecksumString(checksum)
+	failError(t, err)
+	assert.Equal(t, checksumAlg, types.ChecksumAlgorithmSHA256)
+	assert.Equal(t, checksumNew, checksumStr)
 
 	sess.ReturnConnection(conn)
 }
@@ -105,9 +116,9 @@ func testUploadDataObjectFromResourceServer(t *testing.T) {
 
 	account.ClientServerNegotiation = false
 
-	sessionConfig := session.NewIRODSSessionConfigWithDefault("go-irodsclient-test")
+	sessionConfig := GetTestSessionConfig()
 
-	sess, err := session.NewIRODSSessionWithAddressResolver(account, sessionConfig, server.AddressResolver)
+	sess, err := session.NewIRODSSession(account, sessionConfig)
 	failError(t, err)
 	defer sess.Release()
 
@@ -131,11 +142,11 @@ func testUploadDataObjectFromResourceServer(t *testing.T) {
 		callbackCalled++
 	}
 
-	err = fs.UploadDataObjectToResourceServer(sess, filepath, irodsPath, "", false, callBack)
+	err = fs.UploadDataObjectToResourceServer(sess, filepath, irodsPath, "", 0, false, nil, callBack)
 	failError(t, err)
-	assert.Greater(t, callbackCalled, 10) // at least called 10 times
+	assert.Greater(t, callbackCalled, 3) // at least called 3 times
 
-	checksumOriginal, err := util.HashLocalFile(filepath, string(types.ChecksumAlgorithmSHA1))
+	checksumOriginal, err := util.HashLocalFile(filepath, string(types.ChecksumAlgorithmSHA256))
 	failError(t, err)
 
 	err = os.Remove(filepath)
@@ -151,10 +162,16 @@ func testUploadDataObjectFromResourceServer(t *testing.T) {
 	assert.Equal(t, int64(fileSize), obj.Size)
 
 	// get
-	err = fs.DownloadDataObjectFromResourceServer(sess, irodsPath, "", filename, int64(fileSize), callBack)
+	keywords := map[common.KeyWord]string{
+		common.VERIFY_CHKSUM_KW: "",
+	}
+
+	checksum, err := fs.DownloadDataObjectFromResourceServer(sess, irodsPath, "", filename, int64(fileSize), 0, keywords, callBack)
 	failError(t, err)
 
-	checksumNew, err := util.HashLocalFile(filename, string(types.ChecksumAlgorithmSHA1))
+	assert.NotEmpty(t, checksum)
+
+	checksumNew, err := util.HashLocalFile(filename, string(types.ChecksumAlgorithmSHA256))
 	failError(t, err)
 
 	err = os.Remove(filename)
@@ -165,6 +182,11 @@ func testUploadDataObjectFromResourceServer(t *testing.T) {
 	failError(t, err)
 
 	assert.Equal(t, checksumOriginal, checksumNew)
+
+	checksumAlg, checksumStr, err := types.ParseIRODSChecksumString(checksum)
+	failError(t, err)
+	assert.Equal(t, checksumAlg, types.ChecksumAlgorithmSHA256)
+	assert.Equal(t, checksumNew, checksumStr)
 
 	sess.ReturnConnection(conn)
 }

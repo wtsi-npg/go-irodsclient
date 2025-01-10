@@ -11,14 +11,14 @@ import (
 type IRODSMessageGetDataObjectRequest IRODSMessageDataObjectRequest
 
 // NewIRODSMessageGetDataObjectRequest creates a IRODSMessageGetDataObjectRequest message
-func NewIRODSMessageGetDataObjectRequest(path string, resource string, fileLength int64) *IRODSMessageGetDataObjectRequest {
+func NewIRODSMessageGetDataObjectRequest(path string, resource string, fileLength int64, threads int) *IRODSMessageGetDataObjectRequest {
 	request := &IRODSMessageGetDataObjectRequest{
 		Path:          path,
 		CreateMode:    0,
 		OpenFlags:     0,
 		Offset:        0,
 		Size:          fileLength,
-		Threads:       0,
+		Threads:       threads,
 		OperationType: int(common.OPER_TYPE_GET_DATA_OBJ),
 		KeyVals: IRODSMessageSSKeyVal{
 			Length: 0,
@@ -30,6 +30,11 @@ func NewIRODSMessageGetDataObjectRequest(path string, resource string, fileLengt
 	}
 
 	return request
+}
+
+// AddKeyVal adds a key-value pair
+func (msg *IRODSMessageGetDataObjectRequest) AddKeyVal(key common.KeyWord, val string) {
+	msg.KeyVals.Add(string(key), val)
 }
 
 // GetBytes returns byte array
@@ -74,4 +79,9 @@ func (msg *IRODSMessageGetDataObjectRequest) GetMessage() (*IRODSMessage, error)
 		Header: msgHeader,
 		Body:   &msgBody,
 	}, nil
+}
+
+// GetXMLCorrector returns XML corrector for this message
+func (msg *IRODSMessageGetDataObjectRequest) GetXMLCorrector() XMLCorrector {
+	return GetXMLCorrectorForRequest()
 }

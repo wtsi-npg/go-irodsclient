@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +27,7 @@ import (
 )
 
 const (
-	TCPBufferSizeDefault int = 4 * 1024 * 1024
+	TCPBufferSizeDefault int = 1 * 1024 * 1024
 )
 
 // IRODSConnection connects to iRODS
@@ -117,13 +119,17 @@ func (conn *IRODSConnection) SupportParallelUpload() bool {
 	return conn.serverVersion.HasHigherVersionThan(4, 2, 9)
 }
 
+func (conn *IRODSConnection) requreNewPamAuth() bool {
+	return conn.serverVersion.HasHigherVersionThan(4, 3, 0)
+}
+
 func (conn *IRODSConnection) requiresCSNegotiation() bool {
 	return conn.account.ClientServerNegotiation
 }
 
 // GetPAMToken returns server generated token For PAM Auth
 func (conn *IRODSConnection) GetPAMToken() string {
-	return conn.account.PamToken
+	return conn.account.PAMToken
 }
 
 // GetSSLSharedSecret returns ssl shared secret
@@ -181,46 +187,32 @@ func (conn *IRODSConnection) setSocketOpt(socket net.Conn, bufferSize int) {
 		// tcpSocket.SetNoDelay(true)
 
 		tcpSocket.SetKeepAlive(true)
+		tcpSocket.SetKeepAlivePeriod(15 * time.Second) // 15 seconds
+		tcpSocket.SetLinger(5)                         // 5 seconds
 
 		// TCP buffer size
-		if bufferSize <= 0 {
-			bufferSize = TCPBufferSizeDefault
-		}
+		if bufferSize > 0 {
+			sockErr := tcpSocket.SetReadBuffer(bufferSize)
+			if sockErr != nil {
+				sockBuffErr := xerrors.Errorf("failed to set tcp read buffer size %d: %w", bufferSize, sockErr)
+				logger.Errorf("%+v", sockBuffErr)
+			}
 
-		sockErr := tcpSocket.SetReadBuffer(bufferSize)
-		if sockErr != nil {
-			sockBuffErr := xerrors.Errorf("failed to set tcp read buffer size %d: %w", bufferSize, sockErr)
-			logger.Errorf("%+v", sockBuffErr)
-		}
-
-		sockErr = tcpSocket.SetWriteBuffer(bufferSize)
-		if sockErr != nil {
-			sockBuffErr := xerrors.Errorf("failed to set tcp write buffer size %d: %w", bufferSize, sockErr)
-			logger.Errorf("%+v", sockBuffErr)
+			sockErr = tcpSocket.SetWriteBuffer(bufferSize)
+			if sockErr != nil {
+				sockBuffErr := xerrors.Errorf("failed to set tcp write buffer size %d: %w", bufferSize, sockErr)
+				logger.Errorf("%+v", sockBuffErr)
+			}
 		}
 	}
 }
 
-// Connect connects to iRODS
-func (conn *IRODSConnection) Connect() error {
+func (conn *IRODSConnection) connectTCP() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "connection",
 		"struct":   "IRODSConnection",
-		"function": "Connect",
+		"function": "connectTCP",
 	})
-
-	conn.connected = false
-
-	conn.account.FixAuthConfiguration()
-
-	err := conn.account.Validate()
-	if err != nil {
-		return xerrors.Errorf("invalid account (%s): %w", err.Error(), types.NewConnectionConfigError(conn.account))
-	}
-
-	// lock the connection
-	conn.Lock()
-	defer conn.Unlock()
 
 	server := fmt.Sprintf("%s:%d", conn.account.Host, conn.account.Port)
 	logger.Debugf("Connecting to %s", server)
@@ -232,7 +224,7 @@ func (conn *IRODSConnection) Connect() error {
 
 	socket, err := dialer.DialContext(ctx, "tcp", server)
 	if err != nil {
-		connErr := xerrors.Errorf("failed to connect to specified host %s and port %d (%s): %w", conn.account.Host, conn.account.Port, err.Error(), types.NewConnectionError())
+		connErr := xerrors.Errorf("failed to connect to specified host %q and port %d (%s): %w", conn.account.Host, conn.account.Port, err.Error(), types.NewConnectionError())
 		logger.Errorf("%+v", connErr)
 
 		if conn.metrics != nil {
@@ -248,18 +240,39 @@ func (conn *IRODSConnection) Connect() error {
 	}
 
 	conn.socket = socket
-	var irodsVersion *types.IRODSVersion
+	return nil
+}
 
-	if conn.requiresCSNegotiation() {
-		// client-server negotiation
-		irodsVersion, err = conn.connectWithCSNegotiation()
-	} else {
-		// No client-server negotiation
-		irodsVersion, err = conn.connectWithoutCSNegotiation()
+// Connect connects to iRODS
+func (conn *IRODSConnection) Connect() error {
+	logger := log.WithFields(log.Fields{
+		"package":  "connection",
+		"struct":   "IRODSConnection",
+		"function": "Connect",
+	})
+
+	conn.account.FixAuthConfiguration()
+
+	err := conn.account.Validate()
+	if err != nil {
+		return xerrors.Errorf("invalid account (%q): %w", err.Error(), types.NewConnectionConfigError(conn.account))
 	}
 
+	conn.connected = false
+
+	// lock the connection
+	conn.Lock()
+	defer conn.Unlock()
+
+	// connect TCP
+	err = conn.connectTCP()
 	if err != nil {
-		connErr := xerrors.Errorf("failed to startup an iRODS connection to server %s and port %d (%s): %w", conn.account.Host, conn.account.Port, err.Error(), types.NewConnectionError())
+		return err
+	}
+
+	irodsVersion, err := conn.startup()
+	if err != nil {
+		connErr := xerrors.Errorf("failed to startup an iRODS connection to server %q and port %d (%s): %w", conn.account.Host, conn.account.Port, err.Error(), types.NewConnectionError())
 		logger.Errorf("%+v", connErr)
 		_ = conn.disconnectNow()
 		if conn.metrics != nil {
@@ -275,14 +288,41 @@ func (conn *IRODSConnection) Connect() error {
 		err = conn.loginNative()
 	case types.AuthSchemeGSI:
 		err = conn.loginGSI()
-	case types.AuthSchemePAM:
-		if len(conn.account.PamToken) > 0 {
+	case types.AuthSchemePAM, types.AuthSchemePAMPassword:
+		if len(conn.account.PAMToken) > 0 {
 			err = conn.loginPAMWithToken()
 		} else {
 			err = conn.loginPAMWithPassword()
+			if err != nil {
+				connErr := xerrors.Errorf("failed to login to irods using PAM authentication: %w", err)
+				logger.Errorf("%+v", connErr)
+				return connErr
+			}
+
+			// reconnect when success
+			conn.disconnectNow()
+
+			// connect TCP
+			err = conn.connectTCP()
+			if err != nil {
+				return err
+			}
+
+			_, err = conn.startup()
+			if err != nil {
+				connErr := xerrors.Errorf("failed to startup an iRODS connection to server %q and port %d (%s): %w", conn.account.Host, conn.account.Port, err.Error(), types.NewConnectionError())
+				logger.Errorf("%+v", connErr)
+				_ = conn.disconnectNow()
+				if conn.metrics != nil {
+					conn.metrics.IncreaseCounterForConnectionFailures(1)
+				}
+				return connErr
+			}
+
+			err = conn.loginPAMWithToken()
 		}
 	default:
-		err = xerrors.Errorf("unknown Authentication Scheme - %s: %w", conn.account.AuthenticationScheme, types.NewConnectionConfigError(conn.account))
+		err = xerrors.Errorf("unknown Authentication Scheme %q: %w", conn.account.AuthenticationScheme, types.NewConnectionConfigError(conn.account))
 	}
 
 	if err != nil {
@@ -294,7 +334,7 @@ func (conn *IRODSConnection) Connect() error {
 
 	if conn.account.UseTicket() {
 		req := message.NewIRODSMessageTicketAdminRequest("session", conn.account.Ticket)
-		err := conn.RequestAndCheck(req, &message.IRODSMessageAdminResponse{}, nil)
+		err := conn.RequestAndCheck(req, &message.IRODSMessageTicketAdminResponse{}, nil)
 		if err != nil {
 			return xerrors.Errorf("received supply ticket error (%s): %w", err.Error(), types.NewAuthError(conn.account))
 		}
@@ -302,33 +342,46 @@ func (conn *IRODSConnection) Connect() error {
 
 	conn.connected = true
 	conn.lastSuccessfulAccess = time.Now()
-
 	return nil
 }
 
-func (conn *IRODSConnection) connectWithCSNegotiation() (*types.IRODSVersion, error) {
+func (conn *IRODSConnection) startup() (*types.IRODSVersion, error) {
 	logger := log.WithFields(log.Fields{
 		"package":  "connection",
 		"struct":   "IRODSConnection",
-		"function": "connectWithCSNegotiation",
+		"function": "startup",
 	})
 
-	// Get client negotiation policy
-	clientPolicy := types.CSNegotiationRequireTCP
-	if len(conn.account.CSNegotiationPolicy) > 0 {
-		clientPolicy = conn.account.CSNegotiationPolicy
+	clientPolicy := types.CSNegotiationPolicyRequestTCP
+	if conn.requiresCSNegotiation() {
+		// Get client negotiation policy
+		if len(conn.account.CSNegotiationPolicy) > 0 {
+			clientPolicy = conn.account.CSNegotiationPolicy
+		}
 	}
+
+	logger.Debug("Start up an iRODS connection")
 
 	// Send a startup message
-	logger.Debug("Start up a connection with CS Negotiation")
+	startup := message.NewIRODSMessageStartupPack(conn.account, conn.applicationName, conn.requiresCSNegotiation())
 
-	startup := message.NewIRODSMessageStartupPack(conn.account, conn.applicationName, true)
-	err := conn.RequestWithoutResponse(startup)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to send startup (%s): %w", err.Error(), types.NewConnectionError())
+	if conn.requiresCSNegotiation() {
+		err := conn.RequestWithoutResponse(startup)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to send startup (%s): %w", err.Error(), types.NewConnectionError())
+		}
+	} else {
+		// no cs negotiation
+		version := message.IRODSMessageVersion{}
+		err := conn.Request(startup, &version, nil)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to receive version message (%s): %w", err.Error(), types.NewConnectionError())
+		}
+
+		return version.GetVersion(), nil
 	}
 
-	// Server responds with negotiation response
+	// cs negotiation response
 	negotiationMessage, err := conn.ReadMessage(nil)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to receive negotiation message (%s): %w", err.Error(), types.NewConnectionError())
@@ -358,19 +411,19 @@ func (conn *IRODSConnection) connectWithCSNegotiation() (*types.IRODSVersion, er
 			return nil, xerrors.Errorf("failed to receive negotiation message (%s): %w", err.Error(), types.NewConnectionError())
 		}
 
-		serverPolicy, err := types.GetCSNegotiationRequire(negotiation.Result)
+		serverPolicy := types.GetCSNegotiationPolicyRequest(negotiation.Result)
 		if err != nil {
-			return nil, xerrors.Errorf("failed to parse server policy (%s): %w", err.Error(), types.NewConnectionError())
+			return nil, xerrors.Errorf("failed to parse server policy (%s): %w", negotiation.Result, types.NewConnectionError())
 		}
 
-		logger.Debugf("Client policy - %s, server policy - %s", clientPolicy, serverPolicy)
+		logger.Debugf("Client policy %q, server policy %q", clientPolicy, serverPolicy)
 
 		// Perform the negotiation
 		policyResult := types.PerformCSNegotiation(clientPolicy, serverPolicy)
 
 		// If negotiation failed we're done
 		if policyResult == types.CSNegotiationFailure {
-			return nil, xerrors.Errorf("client-server negotiation failed - %s, %s: %w", string(clientPolicy), string(serverPolicy), types.NewConnectionError())
+			return nil, xerrors.Errorf("client-server negotiation failed (client %q, server %q): %w", string(clientPolicy), string(serverPolicy), types.NewConnectionError())
 		}
 
 		// Send negotiation result to server
@@ -391,28 +444,8 @@ func (conn *IRODSConnection) connectWithCSNegotiation() (*types.IRODSVersion, er
 		return version.GetVersion(), nil
 	}
 
-	return nil, xerrors.Errorf("unknown response message '%s': %w", negotiationMessage.Body.Type, types.NewConnectionError())
-}
+	return nil, xerrors.Errorf("unknown response message %q: %w", negotiationMessage.Body.Type, types.NewConnectionError())
 
-func (conn *IRODSConnection) connectWithoutCSNegotiation() (*types.IRODSVersion, error) {
-	logger := log.WithFields(log.Fields{
-		"package":  "connection",
-		"struct":   "IRODSConnection",
-		"function": "connectWithoutCSNegotiation",
-	})
-
-	// No client-server negotiation
-	// Send a startup message
-	logger.Debug("Start up connection without CS Negotiation")
-
-	startup := message.NewIRODSMessageStartupPack(conn.account, conn.applicationName, false)
-	version := message.IRODSMessageVersion{}
-	err := conn.Request(startup, &version, nil)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to receive version message (%s): %w", err.Error(), types.NewConnectionError())
-	}
-
-	return version.GetVersion(), nil
 }
 
 func (conn *IRODSConnection) sslStartup() error {
@@ -429,24 +462,17 @@ func (conn *IRODSConnection) sslStartup() error {
 		return xerrors.Errorf("SSL Configuration is not set: %w", types.NewConnectionConfigError(conn.account))
 	}
 
-	caCertPool, err := irodsSSLConfig.LoadCACert()
+	tlsConfig, err := irodsSSLConfig.GetTLSConfig(conn.account.Host)
 	if err != nil {
-		return xerrors.Errorf("Failed to load CA Certificates: %w", err)
-	}
-
-	serverName := conn.account.Host
-
-	if conn.account.ServerNameTLS != "" {
-		serverName = conn.account.ServerNameTLS
+		return xerrors.Errorf("Failed to get TLS config: %w", err)
 	}
 
 	sslConf := &tls.Config{
-		RootCAs:            caCertPool,
-		ServerName:         serverName,
-		InsecureSkipVerify: conn.account.SkipVerifyTLS,
-		// Force a cipher suite that is accepted by the target server
-		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_256_CBC_SHA},
-    }
+		RootCAs:            tlsConfig.RootCAs,
+		ServerName:         conn.account.Host,
+		InsecureSkipVerify: true,
+		CipherSuites:       append(tlsConfig.CipherSuites, tls.TLS_RSA_WITH_AES_256_CBC_SHA),
+	}
 
 	// Create a side connection using the existing socket
 	sslSocket := tls.Client(conn.socket, sslConf)
@@ -468,7 +494,7 @@ func (conn *IRODSConnection) sslStartup() error {
 	}
 
 	// Send a ssl setting
-	sslSetting := message.NewIRODSMessageSSLSettings(irodsSSLConfig.EncryptionAlgorithm, irodsSSLConfig.EncryptionKeySize, irodsSSLConfig.SaltSize, irodsSSLConfig.HashRounds)
+	sslSetting := message.NewIRODSMessageSSLSettings(irodsSSLConfig.EncryptionAlgorithm, irodsSSLConfig.EncryptionKeySize, irodsSSLConfig.EncryptionSaltSize, irodsSSLConfig.EncryptionNumHashRounds)
 	err = conn.RequestWithoutResponse(sslSetting)
 	if err != nil {
 		return xerrors.Errorf("failed to send ssl setting message (%s): %w", err.Error(), types.NewConnectionError())
@@ -476,7 +502,7 @@ func (conn *IRODSConnection) sslStartup() error {
 
 	// Send a shared secret
 	sslSharedSecret := message.NewIRODSMessageSSLSharedSecret(encryptionKey)
-	err = conn.RequestWithoutResponseNoXML(sslSharedSecret)
+	err = conn.RequestWithoutResponse(sslSharedSecret)
 	if err != nil {
 		return xerrors.Errorf("failed to send ssl shared secret message (%s): %w", err.Error(), types.NewConnectionError())
 	}
@@ -490,7 +516,7 @@ func (conn *IRODSConnection) login(password string) error {
 	// authenticate
 	authRequest := message.NewIRODSMessageAuthRequest()
 	authChallenge := message.IRODSMessageAuthChallengeResponse{}
-	err := conn.Request(authRequest, &authChallenge, nil)
+	err := conn.RequestAndCheck(authRequest, &authChallenge, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to receive authentication challenge message body (%s): %w", err.Error(), types.NewAuthError(conn.account))
 	}
@@ -529,6 +555,12 @@ func (conn *IRODSConnection) loginGSI() error {
 	return xerrors.Errorf("GSI login is not yet implemented: %w", types.NewAuthError(conn.account))
 }
 
+func (conn *IRODSConnection) getSafePAMPassword(password string) string {
+	// For certain characters in the pam password, if they need escaping with '\' then do so.
+	replacer := strings.NewReplacer("@", "\\@", "=", "\\=", "&", "\\&", ";", "\\;")
+	return replacer.Replace(password)
+}
+
 func (conn *IRODSConnection) loginPAMWithPassword() error {
 	logger := log.WithFields(log.Fields{
 		"package":  "connection",
@@ -544,23 +576,56 @@ func (conn *IRODSConnection) loginPAMWithPassword() error {
 	}
 
 	ttl := conn.account.PamTTL
-	if ttl <= 0 {
-		ttl = 1
+	if ttl < 0 {
+		ttl = 0 // server decides
+	}
+
+	pamPassword := conn.getSafePAMPassword(conn.account.Password)
+
+	userKV := fmt.Sprintf("a_user=%s", conn.account.ProxyUser)
+	passwordKV := fmt.Sprintf("a_pw=%s", pamPassword)
+	ttlKV := fmt.Sprintf("a_ttl=%s", strconv.Itoa(ttl))
+
+	authContext := strings.Join([]string{userKV, passwordKV, ttlKV}, ";")
+
+	useDedicatedPAMApi := true
+	if conn.requreNewPamAuth() {
+		useDedicatedPAMApi = strings.ContainsAny(pamPassword, ";=") || len(authContext) >= 1024+64
 	}
 
 	// authenticate
-	pamAuthRequest := message.NewIRODSMessagePamAuthRequest(conn.account.ClientUser, conn.account.Password, ttl)
-	pamAuthResponse := message.IRODSMessagePamAuthResponse{}
-	err := conn.Request(pamAuthRequest, &pamAuthResponse, nil)
-	if err != nil {
-		return xerrors.Errorf("failed to receive an authentication challenge message (%s): %w", err.Error(), types.NewAuthError(conn.account))
+	pamToken := ""
+
+	if useDedicatedPAMApi {
+		logger.Debugf("use dedicated PAM api")
+
+		pamAuthRequest := message.NewIRODSMessagePamAuthRequest(conn.account.ProxyUser, conn.account.Password, ttl)
+		pamAuthResponse := message.IRODSMessagePamAuthResponse{}
+		err := conn.RequestAndCheck(pamAuthRequest, &pamAuthResponse, nil)
+		if err != nil {
+			return xerrors.Errorf("failed to receive a PAM token (%s): %w", err.Error(), types.NewAuthError(conn.account))
+		}
+
+		pamToken = pamAuthResponse.GeneratedPassword
+	} else {
+		logger.Debugf("use auth plugin api: scheme %q", string(types.AuthSchemePAM))
+
+		pamAuthRequest := message.NewIRODSMessageAuthPluginRequest(string(types.AuthSchemePAM), authContext)
+		pamAuthResponse := message.IRODSMessageAuthPluginResponse{}
+		err := conn.RequestAndCheck(pamAuthRequest, &pamAuthResponse, nil)
+		if err != nil {
+			return xerrors.Errorf("failed to receive a PAM token (%s): %w", err.Error(), types.NewAuthError(conn.account))
+		}
+
+		pamToken = string(pamAuthResponse.GeneratedPassword)
 	}
 
 	// save irods generated password for possible future use
-	conn.account.PamToken = pamAuthResponse.GeneratedPassword
+	conn.account.PAMToken = pamToken
 
-	// retry native auth with generated password
-	return conn.login(conn.account.PamToken)
+	// we do not login here.
+	// connection will be disconnected and reconnected afterword
+	return nil
 }
 
 func (conn *IRODSConnection) loginPAMWithToken() error {
@@ -577,13 +642,8 @@ func (conn *IRODSConnection) loginPAMWithToken() error {
 		return xerrors.Errorf("connection should be using SSL: %w", types.NewConnectionError())
 	}
 
-	ttl := conn.account.PamTTL
-	if ttl <= 0 {
-		ttl = 1
-	}
-
 	// retry native auth with generated password
-	return conn.login(conn.account.PamToken)
+	return conn.login(conn.account.PAMToken)
 }
 
 // Disconnect disconnects
@@ -666,6 +726,11 @@ func (conn *IRODSConnection) SendWithTrackerCallBack(buffer []byte, size int, ca
 
 	err := util.WriteBytesWithTrackerCallBack(conn.socket, buffer, size, callback)
 	if err != nil {
+		if err == io.EOF {
+			conn.socketFail()
+			return io.EOF
+		}
+
 		conn.socketFail()
 		return xerrors.Errorf("failed to send data: %w", err)
 	}
@@ -697,7 +762,7 @@ func (conn *IRODSConnection) SendFromReader(src io.Reader, size int64) error {
 
 	copyLen, err := io.CopyN(conn.socket, src, size)
 	if copyLen != size {
-		return xerrors.Errorf("failed to send data. src returned EOF (requested %d, copied %d)", size, copyLen)
+		return xerrors.Errorf("failed to send data. failed to send data fully (requested %d vs sent %d)", size, copyLen)
 	}
 
 	if copyLen > 0 {
@@ -707,10 +772,13 @@ func (conn *IRODSConnection) SendFromReader(src io.Reader, size int64) error {
 	}
 
 	if err != nil {
-		if err != io.EOF {
+		if err == io.EOF {
 			conn.socketFail()
-			return xerrors.Errorf("failed to send data: %w", err)
+			return io.EOF
 		}
+
+		conn.socketFail()
+		return xerrors.Errorf("failed to send data: %w", err)
 	}
 
 	conn.lastSuccessfulAccess = time.Now()
@@ -738,15 +806,20 @@ func (conn *IRODSConnection) RecvWithTrackerCallBack(buffer []byte, size int, ca
 	}
 
 	readLen, err := util.ReadBytesWithTrackerCallBack(conn.socket, buffer, size, callback)
-	if err != nil {
-		conn.socketFail()
-		return readLen, xerrors.Errorf("failed to receive data: %w", err)
-	}
-
 	if readLen > 0 {
 		if conn.metrics != nil {
 			conn.metrics.IncreaseBytesReceived(uint64(readLen))
 		}
+	}
+
+	if err != nil {
+		if err == io.EOF {
+			conn.lastSuccessfulAccess = time.Now()
+			return readLen, io.EOF
+		}
+
+		conn.socketFail()
+		return readLen, xerrors.Errorf("failed to receive data: %w", err)
 	}
 
 	conn.lastSuccessfulAccess = time.Now()
@@ -776,10 +849,13 @@ func (conn *IRODSConnection) RecvToWriter(writer io.Writer, size int64) (int64, 
 	}
 
 	if err != nil {
-		if err != io.EOF {
-			conn.socketFail()
-			return copyLen, xerrors.Errorf("failed to receive data: %w", err)
+		if err == io.EOF {
+			conn.lastSuccessfulAccess = time.Now()
+			return copyLen, io.EOF
 		}
+
+		conn.socketFail()
+		return copyLen, xerrors.Errorf("failed to receive data: %w", err)
 	}
 
 	conn.lastSuccessfulAccess = time.Now()
@@ -868,7 +944,10 @@ func (conn *IRODSConnection) SendMessageWithTrackerCallBack(msg *message.IRODSMe
 	// send body-bs
 	if msg.Body != nil {
 		if msg.Body.Bs != nil {
-			conn.SendWithTrackerCallBack(msg.Body.Bs, len(msg.Body.Bs), callback)
+			err = conn.SendWithTrackerCallBack(msg.Body.Bs, len(msg.Body.Bs), callback)
+			if err != nil {
+				return xerrors.Errorf("failed to send message: %w", err)
+			}
 		}
 	}
 	return nil
@@ -999,7 +1078,7 @@ func (conn *IRODSConnection) PoorMansRollback() error {
 		return xerrors.Errorf("connection must be locked before use")
 	}
 
-	dummyCol := fmt.Sprintf("/%s/home/%s", conn.account.ClientZone, conn.account.ClientUser)
+	dummyCol := fmt.Sprintf("/%s/home/%s", conn.account.ProxyZone, conn.account.ProxyUser)
 
 	return conn.poorMansEndTransaction(dummyCol, false)
 }
@@ -1015,6 +1094,7 @@ func (conn *IRODSConnection) poorMansEndTransaction(dummyCol string, commit bool
 	if commit {
 		request.AddKeyVal(common.COLLECTION_TYPE_KW, "NULL_SPECIAL_VALUE")
 	}
+
 	response := message.IRODSMessageModifyCollectionResponse{}
 	err := conn.Request(request, &response, nil)
 	if err != nil {

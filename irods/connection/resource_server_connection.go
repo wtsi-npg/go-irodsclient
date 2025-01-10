@@ -57,7 +57,7 @@ func NewIRODSResourceServerConnection(rootConnection *IRODSConnection, redirecti
 func NewIRODSResourceServerConnectionWithMetrics(controlConnection *IRODSConnection, redirectionInfo *types.IRODSRedirectionInfo, metrics *metrics.IRODSMetrics) *IRODSResourceServerConnection {
 	tcpBufferSize := redirectionInfo.WindowSize
 	if redirectionInfo.WindowSize <= 0 {
-		tcpBufferSize = TCPBufferSizeDefault
+		tcpBufferSize = controlConnection.tcpBufferSize
 	}
 
 	return &IRODSResourceServerConnection{
@@ -114,27 +114,25 @@ func (conn *IRODSResourceServerConnection) setSocketOpt(socket net.Conn, bufferS
 
 	if tcpSocket, ok := socket.(*net.TCPConn); ok {
 		// TCP socket
-
-		// nodelay is default
-		//tcpSocket.SetNoDelay(true)
+		tcpSocket.SetNoDelay(true)
 
 		tcpSocket.SetKeepAlive(true)
+		tcpSocket.SetKeepAlivePeriod(15 * time.Second) // 15 seconds
+		tcpSocket.SetLinger(5)                         // 5 seconds
 
 		// TCP buffer size
-		if bufferSize <= 0 {
-			bufferSize = TCPBufferSizeDefault
-		}
+		if bufferSize > 0 {
+			sockErr := tcpSocket.SetReadBuffer(bufferSize)
+			if sockErr != nil {
+				sockBuffErr := xerrors.Errorf("failed to set tcp read buffer size %d: %w", bufferSize, sockErr)
+				logger.Errorf("%+v", sockBuffErr)
+			}
 
-		sockErr := tcpSocket.SetReadBuffer(bufferSize)
-		if sockErr != nil {
-			sockBuffErr := xerrors.Errorf("failed to set tcp read buffer size %d: %w", bufferSize, sockErr)
-			logger.Errorf("%+v", sockBuffErr)
-		}
-
-		sockErr = tcpSocket.SetWriteBuffer(bufferSize)
-		if sockErr != nil {
-			sockBuffErr := xerrors.Errorf("failed to set tcp write buffer size %d: %w", bufferSize, sockErr)
-			logger.Errorf("%+v", sockBuffErr)
+			sockErr = tcpSocket.SetWriteBuffer(bufferSize)
+			if sockErr != nil {
+				sockBuffErr := xerrors.Errorf("failed to set tcp write buffer size %d: %w", bufferSize, sockErr)
+				logger.Errorf("%+v", sockBuffErr)
+			}
 		}
 	}
 }
@@ -168,7 +166,7 @@ func (conn *IRODSResourceServerConnection) Connect() error {
 
 	socket, err := dialer.DialContext(ctx, "tcp", server)
 	if err != nil {
-		connErr := xerrors.Errorf("failed to connect to specified host %s and port %d (%s): %w", conn.serverInfo.Host, conn.serverInfo.Port, err.Error(), types.NewConnectionError())
+		connErr := xerrors.Errorf("failed to connect to specified host %q and port %d (%s): %w", conn.serverInfo.Host, conn.serverInfo.Port, err.Error(), types.NewConnectionError())
 		logger.Errorf("%+v", connErr)
 
 		if conn.metrics != nil {
@@ -199,7 +197,7 @@ func (conn *IRODSResourceServerConnection) Connect() error {
 
 	err = conn.Send(authBytes, len(authBytes))
 	if err != nil {
-		authErr := xerrors.Errorf("failed to send authentication request to server %s and port %d: %w", conn.serverInfo.Host, conn.serverInfo.Port, err)
+		authErr := xerrors.Errorf("failed to send authentication request to server %q and port %d: %w", conn.serverInfo.Host, conn.serverInfo.Port, err)
 		logger.Errorf("%+v", authErr)
 		_ = conn.disconnectNow()
 		if conn.metrics != nil {
@@ -250,9 +248,11 @@ func (conn *IRODSResourceServerConnection) Disconnect() error {
 
 	err := conn.disconnectNow()
 	if err != nil {
+		logger.WithError(err).Debug("failed to disconnect the connection")
 		return err
 	}
 
+	logger.Debug("Disconnected the connection")
 	return nil
 }
 
@@ -285,6 +285,11 @@ func (conn *IRODSResourceServerConnection) SendWithTrackerCallBack(buffer []byte
 
 	err := util.WriteBytesWithTrackerCallBack(conn.socket, buffer, size, callback)
 	if err != nil {
+		if err == io.EOF {
+			conn.socketFail()
+			return io.EOF
+		}
+
 		conn.socketFail()
 		return xerrors.Errorf("failed to send data: %w", err)
 	}
@@ -326,10 +331,13 @@ func (conn *IRODSResourceServerConnection) SendFromReader(src io.Reader, size in
 	}
 
 	if err != nil {
-		if err != io.EOF {
+		if err == io.EOF {
 			conn.socketFail()
-			return xerrors.Errorf("failed to send data: %w", err)
+			return io.EOF
 		}
+
+		conn.socketFail()
+		return xerrors.Errorf("failed to send data: %w", err)
 	}
 
 	conn.lastSuccessfulAccess = time.Now()
@@ -357,15 +365,20 @@ func (conn *IRODSResourceServerConnection) RecvWithTrackerCallBack(buffer []byte
 	}
 
 	readLen, err := util.ReadBytesWithTrackerCallBack(conn.socket, buffer, size, callback)
-	if err != nil {
-		conn.socketFail()
-		return readLen, xerrors.Errorf("failed to receive data: %w", err)
-	}
-
 	if readLen > 0 {
 		if conn.metrics != nil {
 			conn.metrics.IncreaseBytesReceived(uint64(readLen))
 		}
+	}
+
+	if err != nil {
+		if err == io.EOF {
+			conn.lastSuccessfulAccess = time.Now()
+			return readLen, io.EOF
+		}
+
+		conn.socketFail()
+		return readLen, xerrors.Errorf("failed to receive data: %w", err)
 	}
 
 	conn.lastSuccessfulAccess = time.Now()
@@ -395,10 +408,13 @@ func (conn *IRODSResourceServerConnection) RecvToWriter(writer io.Writer, size i
 	}
 
 	if err != nil {
-		if err != io.EOF {
-			conn.socketFail()
-			return copyLen, xerrors.Errorf("failed to receive data: %w", err)
+		if err == io.EOF {
+			conn.lastSuccessfulAccess = time.Now()
+			return copyLen, io.EOF
 		}
+
+		conn.socketFail()
+		return copyLen, xerrors.Errorf("failed to receive data: %w", err)
 	}
 
 	conn.lastSuccessfulAccess = time.Now()
